@@ -70,7 +70,7 @@ export async function scrapeTimeslots({ reg, location }) {
 async function scrapeBatch(reg, location, batchIndex) {
   const offset = batchIndex * 5;
   const label = `B${batchIndex + 1}`;
-  const browser = await chromium.launch({ headless: false, slowMo: 200 });
+  const browser = await chromium.launch({ headless: true });
   const context = await newContext(browser);
   await context.grantPermissions(["geolocation"], { origin: "https://www.carspect.se" });
   const page = await context.newPage();
@@ -142,11 +142,23 @@ async function scrapeBatch(reg, location, batchIndex) {
 // ── Book ───────────────────────────────────────────────────────────────────
 
 export async function bookTimeslot({ reg, station, date, time }) {
-  console.log(`\n📅 Booking headless: ${time} ${date} @ ${station} for ${reg}`);
+  console.log(`\n📅 Booking: ${time} ${date} @ ${station} for ${reg}`);
 
-  // DEBUG: headless: false so we can see what happens after slot click
-  const browser = await chromium.launch({ headless: false, slowMo: 300 });
-  const context = await newContext(browser);
+  // Visible mobile browser — user completes payment in this window
+  const browser = await chromium.launch({
+    headless: false,
+    args: ["--window-size=430,900", "--window-position=100,50"],
+  });
+  const context = await browser.newContext({
+    userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+    locale: "sv-SE",
+    viewport: { width: 430, height: 900 },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+    permissions: ["geolocation"],
+    geolocation: { latitude: 59.3293, longitude: 18.0686 },
+  });
   await context.grantPermissions(["geolocation"], { origin: "https://www.carspect.se" });
   const page = await context.newPage();
 
@@ -247,62 +259,24 @@ export async function bookTimeslot({ reg, station, date, time }) {
     await page.waitForTimeout(500);
     console.log("  ✓ Slot clicked");
 
-    // DEBUG: screenshot + log buttons before final click
-    await page.screenshot({ path: "./results/debug_before_payment.png", fullPage: true });
-    console.log("  📸 Screenshot saved: results/debug_before_payment.png");
-    const buttons = await page.evaluate(() =>
-      Array.from(document.querySelectorAll("button")).map(b => ({
-        text: b.textContent?.trim().substring(0, 50),
-        disabled: b.disabled,
-        visible: b.offsetParent !== null,
-      }))
-    );
-    console.log("  🔘 Buttons:", JSON.stringify(buttons));
-
-    // Listen for popup (new tab) OR navigation away from carspect.se
-    const popupPromise = context.waitForEvent("page", { timeout: 15000 }).catch(() => null);
-
+    // Navigate to payment page
     await clickFortsatt(page);
-    console.log("  ✓ clickFortsatt done, URL:", page.url());
+    console.log("  ✓ On payment page — waiting for user to complete");
 
-    let klarnaUrl = null;
+    // Detect payment page loaded (step 4 active in stepper)
+    await page.waitForSelector('.step-active, [class*="step"][class*="active"], .booking-step-4', { timeout: 8000 }).catch(() => {});
 
-    // Case 1: current page navigates away from carspect to Klarna
-    try {
-      await page.waitForURL(url => !url.includes("carspect.se"), { timeout: 10000 });
-      klarnaUrl = page.url();
-      console.log(`  ✓ Page navigated to: ${klarnaUrl}`);
-    } catch {
-      // Case 2: Klarna opened as popup/new tab
-      const popup = await popupPromise;
-      if (popup) {
-        await popup.waitForLoadState("domcontentloaded").catch(() => {});
-        klarnaUrl = popup.url();
-        console.log(`  ✓ Popup URL: ${klarnaUrl}`);
-        await popup.close();
-      }
-    }
-
-    // DEBUG: screenshot after click regardless
-    await page.screenshot({ path: "./results/debug_after_payment.png", fullPage: true });
-    console.log("  📸 Screenshot saved: results/debug_after_payment.png");
-    console.log("  Final URL:", page.url());
-
-    if (!klarnaUrl || klarnaUrl.includes("carspect.se")) {
-      throw new Error("Kunde inte nå betalningssidan – fick: " + (klarnaUrl ?? "ingen URL"));
-    }
-
-    console.log(`  ✓ Payment URL: ${klarnaUrl}`);
-    const cookies = await context.cookies();
-
+    // Return immediately — browser stays open for user to complete payment
+    // Server signals frontend that the window is open and ready
     return {
       booked: true,
       reg, station, date, time,
-      url: klarnaUrl,
-      cookies,
+      status: "payment_window_open",
+      message: "Betalningsfönstret är öppet — slutför betalningen där",
     };
 
   } finally {
-    await browser.close();
+    // Do NOT close browser here — user needs it to complete payment
+    // Browser will close naturally when user is done
   }
 }

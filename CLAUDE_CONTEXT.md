@@ -13,6 +13,8 @@ Projektet finns lokalt på användarens Mac under:
 ~/carspect-agent/
 ```
 
+GitHub: https://github.com/nano1980/besiktningsapp
+
 ---
 
 ## Filstruktur
@@ -38,25 +40,28 @@ Exporterar två funktioner:
 - Kör 3 parallella Playwright-batchar (5 stationer per batch = 15 stationer totalt)
 - Deduplicerar och sorterar resultaten efter datum/tid
 - Returnerar `{ timeslots: [...], inspectionType, stations }`
+- Kör **headless: true**
 
 **`bookTimeslot({ reg, station, date, time })`**
-- Navigerar hela bokningsflödet på carspect.se headless
-- Lyssnar på **två scenarion** för att fånga Klarna-URL:en:
-  1. Sidan navigerar bort från `carspect.se` → `page.waitForURL()`
-  2. Klarna öppnas som popup/ny tab → `context.waitForEvent("page")`
-- Returnerar `{ booked, url, cookies }` – Klarna-URL skickas till frontend som gör `window.location.href = url`
+- Öppnar ett **synligt mobilanpassat Playwright-fönster** (430×900, isMobile: true)
+- Navigerar hela bokningsflödet automatiskt
+- Stannar kvar på carspects **betalningssida** – användaren slutför betalningen där
+- Returnerar `{ booked: true, status: "payment_window_open", message }`
+- Stänger INTE browsern – användaren gör det själv efter betalning
 
 ### server.js – Express API på port 3000
 ```
 GET  /timeslots?reg=ABC123&location=Stockholm   → Returnerar lediga tider (JSON + sparar CSV)
-POST /book  { reg, station, date, time }         → Startar bokning, returnerar Klarna payment-URL
+POST /book  { reg, station, date, time }         → Öppnar betalningsfönster, returnerar status
 GET  /health                                     → { status: "ok" }
 ```
 
 ### index.html – Frontend
-- Mobilanpassad app-layout (max-width 600px), körs som `file:///Users/hernangil/carspect-agent/index.html`
-- 3 skärmar: Sök → Resultat → Bekräfta
-- Vid bokning: visar loader och gör `window.location.href = d.url` för att skicka användaren till Klarna **i samma fönster**
+- Mobilanpassad app-layout (max-width 600px)
+- Körs som `file:///Users/hernangil/carspect-agent/index.html`
+- 4 skärmar: Sök → Resultat → Bekräfta → Betalning pågår
+- Vid bokning: visar loader → när API svarar visas "screen-payment" med bokningsdetaljer
+- Användaren slutför betalningen i Playwright-fönstret som öppnats
 - Kommunicerar med Express-servern på `http://localhost:3000`
 
 ### cli.js – Kommandoradsverktyg
@@ -83,10 +88,18 @@ node cli.js --reg ABC123 --location Stockholm --type Kontrollbesiktning
 - Tidsluckor hämtas via `.slot-option-container` och datumhuvud via `.header-text`
 - Geolocation sätts till Stockholm (59.3293, 18.0686) som default
 
-### ⚠️ Känt problem: Klarna-redirect (åtgärdat mars 2026)
-**Problem:** `bookTimeslot` returnerade alltid `https://www.carspect.se/boka-tid` som payment-URL istället för Klarna-URL:en. Detta berodde på att `page.url()` hämtades direkt efter `clickFortsatt()` innan Klarna-redirecten hann ske. Dessutom öppnar carspect.se Klarna som en **popup/ny tab** snarare än att navigera i samma fönster.
+### ⚠️ Betalningssidan (löst mars 2026)
+**Problem:** Carspect.se har sin **egen** betalningssida (inte Klarna-redirect). URL:en förblir `https://www.carspect.se/boka-tid` genom hela flödet. Sessions är knutna till browser-instansen och kan inte överföras till användarens webbläsare via cookies.
 
-**Lösning:** Koden lyssnar nu parallellt på `page.waitForURL()` och `context.waitForEvent("page")` för att fånga Klarna-URL:en oavsett hur sidan väljer att öppna den.
+**Lösning (Alternativ A):** Playwright-fönstret hålls öppet och synligt på betalningssidan. Användaren slutför betalningen direkt i Playwright-fönstret. Frontend visar en "Slutför betalningen"-skärm med bokningsdetaljer medans fönstret är öppet.
+
+**Betalningsfönstret** körs i mobilläge (430×900, isMobile: true, touch) för att matcha appens känsla.
+
+---
+
+## Git & versioner
+- **v1.0** – Grundläggande scraper + bokning + frontend (pushad mars 2026)
+- GitHub: https://github.com/nano1980/besiktningsapp
 
 ---
 

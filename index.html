@@ -197,6 +197,30 @@ select.invalid{border-color:var(--error)!important}
   </div>
 </div>
 
+<!-- SCREEN 4: BETALNING PÅGÅR -->
+<div class="screen hidden" id="screen-payment">
+  <div class="scroll" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:2rem;">
+    <div style="width:72px;height:72px;background:var(--green-light);border-radius:50%;display:grid;place-items:center;margin-bottom:1.5rem;">
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--green-dark)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>
+      </svg>
+    </div>
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:1.6rem;font-weight:800;margin-bottom:.5rem;">Slutför betalningen</div>
+    <div style="color:var(--muted);font-size:.9rem;line-height:1.6;max-width:280px;margin-bottom:2rem;">
+      Ett betalningsfönster har öppnats åt dig.<br>Slutför din bokning där.
+    </div>
+    <div id="payment-summary" style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1.25rem;width:100%;max-width:320px;text-align:left;margin-bottom:2rem;">
+      <div style="font-size:.65rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.75rem;">Bokningsdetaljer</div>
+      <div style="font-weight:600;margin-bottom:.25rem;" id="ps-station">—</div>
+      <div style="color:var(--muted);font-size:.85rem;" id="ps-datetime">—</div>
+      <div style="color:var(--muted);font-size:.85rem;" id="ps-reg">—</div>
+    </div>
+    <button class="btn" style="max-width:320px;" onclick="showScreen('screen-search','back');window.location.reload()">
+      <span class="btn-label">← Ny sökning</span>
+    </button>
+  </div>
+</div>
+
 <!-- SCREEN 3: BEKRÄFTA -->
 <div class="screen hidden" id="screen-confirm">
   <div class="topbar">
@@ -380,12 +404,12 @@ document.getElementById("book-btn").addEventListener("click", async () => {
   const btn = document.getElementById("book-btn");
   btn.disabled = true;
   btn.classList.add("loading");
-  btn.querySelector(".btn-label").textContent = "Navigerar…";
+  btn.querySelector(".btn-label").textContent = "Öppnar betalning…";
 
   showLoader([
     { title: "Reserverar din tid…",      sub: "Navigerar till " + s.station },
     { title: "Sammanställer bokningen…", sub: "Väljer " + s.time + " åt dig" },
-    { title: "Länkar till betalsidan…",  sub: "Förbereder betalning via Klarna" },
+    { title: "Öppnar betalningsfönster…", sub: "Förbereder betalning" },
   ], false);
 
   try {
@@ -397,8 +421,12 @@ document.getElementById("book-btn").addEventListener("click", async () => {
     const d = await r.json();
     if (!r.ok || !d.success) throw new Error(d.error || "Bokningsfel");
 
-    // Navigate directly in same tab — loader stays visible until page changes
-    if (d.url) window.location.href = d.url;
+    // Payment window is now open — show info screen
+    hideLoader();
+    document.getElementById("ps-station").textContent = s.station;
+    document.getElementById("ps-datetime").textContent = s.date + "  " + s.time;
+    document.getElementById("ps-reg").textContent = state.reg + " · Kontrollbesiktning";
+    showScreen("screen-payment", "forward");
 
   } catch(e) {
     hideLoader();
