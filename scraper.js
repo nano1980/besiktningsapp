@@ -163,7 +163,7 @@ async function scrapeBatch(browser, reg, location, batchIndex) {
 // ── Book ───────────────────────────────────────────────────────────────────
 
 export async function bookTimeslot({ reg, station, date, time }) {
-  console.log(`\n📅 Booking: ${time} ${date} @ ${station} for ${reg}`);
+  console.log(`\n📅 Opening booking for ${reg}...`);
 
   const browser = await chromium.launch({
     headless: false,
@@ -182,7 +182,7 @@ export async function bookTimeslot({ reg, station, date, time }) {
   await context.grantPermissions(["geolocation"], { origin: "https://www.carspect.se" });
   const page = await context.newPage();
 
-  // Minimize immediately so the user doesn't see the navigation
+  // Minimize while loading — show when ready for user input
   let cdp, windowId;
   try {
     cdp = await context.newCDPSession(page);
@@ -196,107 +196,16 @@ export async function bookTimeslot({ reg, station, date, time }) {
     await page.goto(BASE_URL, { waitUntil: "domcontentloaded", timeout: 25000 });
     await dismissCookie(page);
 
-    // Reg
+    // Fill reg and wait for car data to load
     await enterReg(page, reg);
-    console.log("  ✓ Reg");
+    console.log("  ✓ Reg loaded");
 
-    // Service
+    // Step past service type (no user choice needed)
     await clickFortsatt(page);
-    await page.waitForTimeout(800);
-    console.log("  ✓ Service");
+    await page.waitForSelector('.form-check-container, input[type="checkbox"]', { timeout: 6000 }).catch(() => {});
+    console.log("  ✓ At station selection — showing window");
 
-    // Stations
-    await dismissLocation(page);
-    try {
-      const box = await page.waitForSelector('input[placeholder*="närheten"], input[placeholder*="ort"], input[placeholder*="station"]', { timeout: 4000 });
-      await box.fill(station.split(" ").slice(0, 2).join(" "));
-      await page.waitForTimeout(1000);
-    } catch {}
-
-    // Click station card
-    const stationResult = await page.evaluate((target) => {
-      const containers = Array.from(document.querySelectorAll('.form-check-container'));
-      const match = containers.find(c => c.textContent?.toLowerCase().includes(target.toLowerCase())) ?? containers[0];
-      if (!match) return false;
-      match.click();
-      const cb = match.querySelector('input[type="checkbox"]');
-      if (cb) {
-        cb.checked = true;
-        cb.dispatchEvent(new Event('change', { bubbles: true }));
-        cb.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      }
-      return match.textContent?.trim().substring(0, 50);
-    }, station);
-
-    console.log(`  ✓ Station: ${stationResult}`);
-    await page.waitForTimeout(600);
-
-    // Retry with mouse events if Fortsätt still disabled
-    const enabled = await page.evaluate(() => {
-      const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('Fortsätt'));
-      return btn && !btn.disabled;
-    });
-    if (!enabled) {
-      await page.evaluate((target) => {
-        const containers = Array.from(document.querySelectorAll('.form-check-container'));
-        const match = containers.find(c => c.textContent?.toLowerCase().includes(target.toLowerCase())) ?? containers[0];
-        if (match) ['mousedown','mouseup','click'].forEach(e =>
-          match.dispatchEvent(new MouseEvent(e, { bubbles: true, cancelable: true }))
-        );
-      }, station);
-      await page.waitForTimeout(500);
-    }
-
-    await clickFortsatt(page);
-    await page.waitForSelector('.react-datepicker', { timeout: 8000 }).catch(() => {});
-    await page.waitForTimeout(500);
-    console.log("  ✓ Date/time page");
-
-    // Nästa lediga tid
-    try {
-      const btn = await page.waitForSelector('button:has-text("Nästa lediga tid")', { timeout: 4000 });
-      await btn.click();
-      await page.waitForTimeout(1200);
-    } catch {}
-
-    // Click date
-    await page.evaluate((targetDate) => {
-      const days = Array.from(document.querySelectorAll('.react-datepicker__day:not(.react-datepicker__day--disabled)'));
-      for (const day of days) {
-        if ((day.getAttribute('aria-label') ?? "").includes(targetDate)) { day.click(); return; }
-      }
-      const dayNum = parseInt(targetDate.split("-")[2], 10);
-      for (const day of days) {
-        const txt = day.querySelector('.date-text')?.textContent?.trim();
-        if (parseInt(txt) === dayNum && !day.classList.contains('react-datepicker__day--outside-month')) {
-          day.click(); return;
-        }
-      }
-    }, date);
-
-    await page.waitForTimeout(800);
-    console.log("  ✓ Date clicked");
-
-    // Click timeslot
-    await page.evaluate((targetTime) => {
-      for (const slot of document.querySelectorAll('.slot-option-container')) {
-        if (slot.querySelector('.slot-time')?.textContent?.trim() === targetTime) {
-          slot.click(); return;
-        }
-      }
-    }, time);
-
-    await page.waitForTimeout(500);
-    console.log("  ✓ Slot clicked");
-
-    // Navigate to payment page
-    await clickFortsatt(page);
-    console.log("  ✓ On payment page — waiting for user to complete");
-
-    // Detect payment page loaded (step 4 active in stepper)
-    await page.waitForSelector('.step-active, [class*="step"][class*="active"], .booking-step-4', { timeout: 8000 }).catch(() => {});
-
-    // Restore the minimized window now that we're on the payment page
+    // Show window — user selects station, date, time and pays from here
     if (cdp && windowId != null) {
       try {
         await cdp.send("Browser.setWindowBounds", {
@@ -309,17 +218,14 @@ export async function bookTimeslot({ reg, station, date, time }) {
       }
     }
 
-    // Return immediately — browser stays open for user to complete payment
-    // Server signals frontend that the window is open and ready
     return {
       booked: true,
       reg, station, date, time,
-      status: "payment_window_open",
-      message: "Betalningsfönstret är öppet — slutför betalningen där",
+      status: "booking_window_open",
+      message: "Välj station och tid i fönstret",
     };
 
   } finally {
-    // Do NOT close browser here — user needs it to complete payment
-    // Browser will close naturally when user is done
+    // Keep browser open — user completes booking there
   }
 }

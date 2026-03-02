@@ -1,7 +1,8 @@
 import express from "express";
 import cors from "cors";
 import fs from "fs";
-import { scrapeTimeslots, bookTimeslot } from "./scraper.js";
+import { exec } from "child_process";
+import { scrapeTimeslots } from "./scraper.js";
 
 const app = express();
 app.use(cors());
@@ -25,16 +26,12 @@ app.get("/timeslots", async (req, res) => {
   }
 });
 
-app.post("/book", async (req, res) => {
+app.post("/book", (req, res) => {
   const { reg, station, date, time } = req.body;
   if (!reg || !station || !date || !time)
     return res.status(400).json({ error: "reg, station, date, time required" });
-  try {
-    const result = await bookTimeslot({ reg: reg.toUpperCase(), station, date, time });
-    return res.json({ success: true, ...result });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
+  exec('open "https://www.carspect.se/boka-tid"');
+  return res.json({ success: true, reg, station, date, time, status: "tab_opened" });
 });
 
 app.listen(3000, () => {
