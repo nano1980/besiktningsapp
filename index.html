@@ -58,6 +58,11 @@ select.invalid{border-color:var(--error)!important}
 .next-icon svg{width:20px;height:20px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .next-label{font-size:.63rem;letter-spacing:.13em;text-transform:uppercase;color:var(--green-dark);font-weight:600;margin-bottom:.15rem}
 .next-value{font-family:'Barlow Condensed',sans-serif;font-size:1.3rem;font-weight:700;color:var(--text)}
+.area-search-wrap{position:relative;margin-bottom:.75rem}
+.area-search-wrap svg{position:absolute;left:.75rem;top:50%;transform:translateY(-50%);width:16px;height:16px;stroke:var(--muted);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.area-search-wrap input{width:100%;background:var(--card);border:1.5px solid var(--border);border-radius:8px;padding:.65rem .9rem .65rem 2.4rem;font-family:'Barlow',sans-serif;font-size:.95rem;color:var(--text);outline:none;transition:border-color .15s,box-shadow .15s}
+.area-search-wrap input:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(61,122,58,.1)}
+.area-search-wrap input::placeholder{color:var(--muted)}
 .results-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:.7rem}
 .results-title{font-size:.68rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 .count-pill{font-size:.68rem;font-weight:600;background:var(--green-light);color:var(--green-dark);border:1px solid rgba(61,122,58,.2);border-radius:20px;padding:.15em .65em}
@@ -188,6 +193,10 @@ select.invalid{border-color:var(--error)!important}
     <div class="next-banner">
       <div class="next-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
       <div><div class="next-label">Närmast i tid</div><div class="next-value" id="next-val">—</div></div>
+    </div>
+    <div class="area-search-wrap">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="area-filter" placeholder="Filtrera på område…" autocomplete="off"/>
     </div>
     <div class="results-head">
       <span class="results-title">Välj en tid</span>
@@ -357,18 +366,21 @@ document.getElementById("back-to-search").addEventListener("click", () => showSc
 document.getElementById("back-to-results").addEventListener("click", () => showScreen("screen-results","back"));
 
 function renderResults() {
-  const slots = state.slots;
-  document.getElementById("count").textContent = slots.length + " tider";
   document.getElementById("results-topbar-title").textContent = state.city + " — " + state.reg;
-  document.getElementById("results-topbar-sub").textContent = slots.length + " lediga tider hittades";
+  document.getElementById("results-topbar-sub").textContent = state.slots.length + " lediga tider hittades";
+  document.getElementById("next-val").textContent = state.slots.length ? state.slots[0].date + "  " + state.slots[0].time : "—";
+  document.getElementById("area-filter").value = "";
+  renderSlotList(state.slots);
+}
+
+function renderSlotList(slots) {
+  document.getElementById("count").textContent = slots.length + " tider";
   const list = document.getElementById("slot-list");
   list.innerHTML = "";
   if (!slots.length) {
-    document.getElementById("next-val").textContent = "—";
-    list.innerHTML = '<div class="no-slots">Inga lediga tider hittades.</div>';
+    list.innerHTML = '<div class="no-slots">Inga tider matchade sökningen.</div>';
     return;
   }
-  document.getElementById("next-val").textContent = slots[0].date + "  " + slots[0].time;
   slots.forEach(s => {
     const el = document.createElement("div");
     el.className = "slot";
@@ -386,6 +398,11 @@ function renderResults() {
     list.appendChild(el);
   });
 }
+
+document.getElementById("area-filter").addEventListener("input", e => {
+  const q = e.target.value.toLowerCase().trim();
+  renderSlotList(q ? state.slots.filter(s => s.station.toLowerCase().includes(q)) : state.slots);
+});
 
 function selectSlot(slot) {
   state.selected = slot;
